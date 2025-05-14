@@ -1,17 +1,14 @@
 // binance.js
 const { MainClient } = require('binance');
-const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const API_KEY = 'xxx';
 const API_SECRET = 'yyy';
 
 // Configure the proxy agent
-const proxyAgent = new HttpsProxyAgent('https://vhyspcds:t9o17m429cup@92.112.153.212:8159');
 
 const client = new MainClient({
   api_key: API_KEY,
   api_secret: API_SECRET,
-  httpAgent: proxyAgent, // Add the proxy agent here
 });
 
 function parseKlines(rawKlines) {
