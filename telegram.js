@@ -1,5 +1,6 @@
-// telegram.js
 const TelegramBot = require('node-telegram-bot-api');
+require('dotenv').config();
+
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 if (!TELEGRAM_TOKEN) {

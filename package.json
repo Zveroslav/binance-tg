@@ -13,6 +13,8 @@
   "dependencies": {
     "@binance/connector": "^3.6.1",
     "binance": "^2.15.20",
+    "dotenv": "^16.5.0",
+    "https-proxy-agent": "^7.0.6",
     "node-telegram-bot-api": "^0.66.0"
   }
 }
