@@ -1,8 +1,8 @@
 // index.js
 const { getLatestKlines } = require('./binance');
 const { getSubscribers, sendAlert } = require('./telegram');
+const symbols = require('./symbols.json'); // Import symbols from the JSON file
 
-const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
 const interval = '1m';
 const checkIntervalMs = 60 * 1000;
 
