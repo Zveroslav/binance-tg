@@ -1,7 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
-
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 if (!TELEGRAM_TOKEN) {
   throw new Error('TELEGRAM_TOKEN is not set');
@@ -11,15 +10,22 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 const subscribers = new Map(); // chatId -> { threshold }
 
+// Enum for button texts
+const ButtonText = {
+  START: '🟢 START',
+  STOP: '🔴 STOP',
+  SET_VALUE: '🔧 SET VALUE',
+};
+
 const keyboard = {
   reply_markup: {
     keyboard: [
-      [{ text: '🟢 START' }, { text: '🔴 STOP' }],
-      [{ text: '🔧 SET VALUE' }]
+      [{ text: ButtonText.START }, { text: ButtonText.STOP }],
+      [{ text: ButtonText.SET_VALUE }],
     ],
     resize_keyboard: true,
-    one_time_keyboard: false
-  }
+    one_time_keyboard: false,
+  },
 };
 
 // Отправить меню при /start
@@ -33,21 +39,21 @@ bot.on('message', (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (text === '🟢 START') {
+  if (text === ButtonText.START) {
     subscribers.set(chatId, { threshold: subscribers.get(chatId)?.threshold || 30 }); // default 30%
 
     console.log(`Подписка на ${chatId} с порогом ${subscribers.get(chatId).threshold} %`);
     bot.sendMessage(chatId, `✅ You subscribed (value is: ${subscribers.get(chatId).threshold}).`);
   }
 
-  if (text === '🔴 STOP') {
+  if (text === ButtonText.STOP) {
     subscribers.delete(chatId);
     bot.sendMessage(chatId, '❌ Unsubscribed.');
   }
 
-  if (text === '🔧 SET VALUE') {
+  if (text === ButtonText.SET_VALUE) {
     bot.sendMessage(chatId, 'Set the new value, for example: `5`', {
-      parse_mode: 'Markdown'
+      parse_mode: 'Markdown',
     });
     // Ждём следующего сообщения от пользователя
     bot.once('message', (msg) => {
@@ -71,12 +77,12 @@ bot.on('message', (msg) => {
 function getSubscribers() {
   return Array.from(subscribers.entries()).map(([chatId, data]) => ({
     chatId,
-    threshold: data.threshold
+    threshold: data.threshold,
   }));
 }
 
 function sendAlert(chatId, message) {
-  return bot.sendMessage(chatId, message).catch(err => {
+  return bot.sendMessage(chatId, message).catch((err) => {
     console.error(`Ошибка отправки в chatId ${chatId}:`, err.message);
   });
 }
