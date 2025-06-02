@@ -40,7 +40,7 @@ bot.on('message', (msg) => {
   const text = msg.text;
 
   if (text === ButtonText.START) {
-    subscribers.set(chatId, { threshold: subscribers.get(chatId)?.threshold || 30 }); // default 30%
+    subscribers.set(chatId, { threshold: subscribers.get(chatId)?.threshold || 50 });
 
     console.log(`Подписка на ${chatId} с порогом ${subscribers.get(chatId).threshold} %`);
     bot.sendMessage(chatId, `✅ You subscribed (value is: ${subscribers.get(chatId).threshold}).`);
