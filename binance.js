@@ -3,8 +3,6 @@ const { MainClient } = require('binance');
 const API_KEY = 'xxx';
 const API_SECRET = 'yyy';
 
-// Configure the proxy agent
-
 const client = new MainClient({
   api_key: API_KEY,
   api_secret: API_SECRET,
@@ -36,12 +34,11 @@ async function monitor(interval, getSubscribers, sendAlert) {
         // Проверяем на бычье/медвежье поглощение с RCI
         const engulfingSignal = detectEngulfingWithRCI(candles, 5);
         if (engulfingSignal.isSignal) {
-          const direction = `OPEN: ${engulfingSignal.type.toUpperCase}`// === 'long' ? '📈 Бычье поглощение' : '📉 Медвежье поглощение';
-          const msg = `${direction} ${symbol}:\nPrice: $${engulfingSignal.entry}\nRCI: ${engulfingSignal.rci}\nConfidence: ${engulfingSignal.confidence}\nStop Loss: $${engulfingSignal.stopLoss}\nTake Profit: $${engulfingSignal.takeProfit} \nReason: ${engulfingSignal.reason} \nLink: ${formatBinanceLink(symbol)}`;
+          const direction = (engulfingSignal.type === 'long' ? '🟢' : '🔴') + `SIGNAL: ${engulfingSignal.type}`;
+          const msg = `${direction} \nCURRENCY: ${symbol}\nPrice: $${engulfingSignal.entry}\nRCI: ${engulfingSignal.rci}\nConfidence: ${engulfingSignal.confidence}\nStop Loss: $${engulfingSignal.stopLoss}\nTake Profit: $${engulfingSignal.takeProfit} \nReason: ${engulfingSignal.reason} \nLink: ${formatBinanceLink(symbol)}`;
           if (!formatBinanceLink(symbol)) {
-            console.error(`Не удалось сформировать ссылку для ${symbol}`);
+            console.error(`ERROR link ${symbol}`);
           } else {
-            // Отправляем сообщение в Telegram
             await sendAlert(chatId, msg);
             console.log(`Engulfing pattern detected for ${symbol} (${engulfingSignal.confidence})`);
           } 
@@ -54,8 +51,8 @@ async function monitor(interval, getSubscribers, sendAlert) {
         const currentClose = candles[candles.length-1].close;
         const diffPercent = ((currentClose - prevClose) / prevClose) * 100;
         if (Math.abs(diffPercent) >= threshold) {
-          const direction = diffPercent > 0 ? '📈 рост' : '📉 падение';
-          const msg = `⚠️ ${symbol}: ${direction} на ${diffPercent.toFixed(2)}%\nЦена: $${currentClose}`;
+          const direction = diffPercent > 0 ? '📈 GROW' : '📉 DOWN';
+          const msg = `⚠️ ${symbol}: ${direction} on ${diffPercent.toFixed(2)}%\nPrice: $${currentClose}`;
           await sendAlert(chatId, msg);
         }
       }
