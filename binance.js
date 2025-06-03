@@ -16,6 +16,7 @@ const client = new MainClient({
   api_secret: API_SECRET,
 });
 
+//TODO: вынести в отдельный файл
 async function monitor(interval, getSubscribers, sendAlert, editResultAlert) {
   let subscribers = getSubscribers();
 
@@ -34,11 +35,7 @@ async function monitor(interval, getSubscribers, sendAlert, editResultAlert) {
 
       for (const { chatId, threshold } of subscribers) {
 
-        if (!chatId) continue; // Пропускаем, если chatId не указан
-        if (!threshold || isNaN(threshold) || threshold <= 0) {
-          console.warn(`Неверный порог для ${chatId}, пропускаем...`);
-          continue;
-        }
+        
         // Проверяем на бычье/медвежье поглощение с RCI
         const engulfingSignal = detectEngulfingWithRCI(candles, 5);
         if (engulfingSignal.isSignal) {
@@ -51,7 +48,7 @@ async function monitor(interval, getSubscribers, sendAlert, editResultAlert) {
             console.log(`Engulfing pattern detected for ${symbol} (${engulfingSignal.confidence})`);
             
             setTimeout(() => {
-              checkSignalResult(symbol, engulfingSignal.stopLoss, engulfingSignal.takeProfit, engulfingSignal.type, { chatId, messageId, editResultAlert });
+              checkSignalResult(symbol, engulfingSignal.stopLoss, engulfingSignal.takeProfit, engulfingSignal.type, { chatId, messageId, editResultAlert, msg });
             }, 5 * 60 * 1000);
           }
         }
@@ -68,9 +65,15 @@ async function monitor(interval, getSubscribers, sendAlert, editResultAlert) {
 
             // Запускаем проверку через 5 минут
             setTimeout(() => {
-              checkSignalResult(symbol, signal.stopLoss, signal.takeProfit, signal.type, { chatId, messageId, editResultAlert });
+              checkSignalResult(symbol, signal.stopLoss, signal.takeProfit, signal.type, { chatId, messageId, editResultAlert, msg });
             }, 5 * 60 * 1000);
           }
+        }
+
+        if (!chatId) continue; // Пропускаем, если chatId не указан
+        if (!threshold || isNaN(threshold) || threshold <= 0) {
+          console.warn(`Неверный порог для ${chatId}, пропускаем...`);
+          continue;
         }
 
         // Проверяем на рост/падение
@@ -157,10 +160,21 @@ function formatBinanceLink(symbol) {
   return `https://www.binance.com/en/trade/${base}_${quote}`;
 }
 
-async function checkSignalResult(symbol, stopLoss, takeProfit, type, { chatId, messageId, editResultAlert }) {
+async function checkSignalResult(symbol, stopLoss, takeProfit, type, { chatId, messageId, editResultAlert, msg }) {
+
+  console.log(`Проверка результата для: \n ${JSON.stringify({ symbol, stopLoss, takeProfit, type, chatId, messageId })}`);
+  if (!symbol || !stopLoss || !takeProfit || !type || !chatId || !messageId) {
+    console.error(`Недостаточно данных для проверки сигнала: ${JSON.stringify({ symbol, stopLoss, takeProfit, type, chatId, messageId })}`);
+    return;
+  }
+  if (typeof stopLoss !== 'number' || typeof takeProfit !== 'number') {
+    console.error(`Неверный тип данных для stopLoss или takeProfit: ${typeof stopLoss}, ${typeof takeProfit}`);
+    return;
+  }
+
   try {
     // Получаем последние 5 свечей
-    const candles = await client.getCandlestickData({
+    const candles = await getLatestKlines({
       symbol: symbol,
       interval: '1m',
       limit: 5
@@ -211,7 +225,7 @@ async function checkSignalResult(symbol, stopLoss, takeProfit, type, { chatId, m
     const statusEmoji = result.status === 'TAKE PROFIT' ? '✅' :
       result.status === 'STOP LOSS' ? '❌' : '⏳';
 
-    const updateMsg = `${statusEmoji} UPDATE: ${symbol} Status: ${result.status} Price: $${result.price}`;
+    const updateMsg = msg + `\n ----- \n ${statusEmoji} RESULT \n Status: ${result.status} Price: $${result.price}`;
 
     await editResultAlert(chatId, messageId, updateMsg);
     console.log(`${symbol} result: ${result.status} at $${result.price}`);

@@ -83,7 +83,7 @@ function getSubscribers() {
 
 async function sendAlert(chatId, message) {
   try {
-    const sentMsg = await bot.sendMessage(chatId, message);
+    const sentMsg = await bot.sendMessage(chatId, message, { disable_web_page_preview: true });
     return sentMsg.message_id;
   } catch (err) {
     console.error(`Ошибка отправки в chatId ${chatId}:`, err.message);
