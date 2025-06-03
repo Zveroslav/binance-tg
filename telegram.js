@@ -81,10 +81,26 @@ function getSubscribers() {
   }));
 }
 
-function sendAlert(chatId, message) {
-  return bot.sendMessage(chatId, message).catch((err) => {
+async function sendAlert(chatId, message) {
+  try {
+    const sentMsg = await bot.sendMessage(chatId, message);
+    return sentMsg.message_id;
+  } catch (err) {
     console.error(`Ошибка отправки в chatId ${chatId}:`, err.message);
-  });
+    return null;
+  }
 }
 
-module.exports = { getSubscribers, sendAlert };
+async function editResultAlert(chatId, messageId, message) {
+  try {
+    return await bot.editMessageText(message, {
+      chat_id: chatId,
+      message_id: messageId,
+    });
+  } catch (err) {
+    console.error(`Ошибка отправки в chatId ${chatId}:`, err.message);
+    return null;
+  }
+}
+
+module.exports = { getSubscribers, sendAlert, editResultAlert };

@@ -1,14 +1,22 @@
 const { MainClient } = require('binance');
+const { detectScalpingSignal } = require('./paterns/engulfingStrategy');
+const { detectEngulfingWithRCI } = require('./paterns/calculateRCI');
 
 const API_KEY = 'xxx';
 const API_SECRET = 'yyy';
+
+const TOP_30_COINS = [
+  'BTC', 'ETH', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 'DOT', 'MATIC', 'LTC',
+  'SHIB', 'TRX', 'AVAX', 'UNI', 'ATOM', 'LINK', 'XMR', 'ETC', 'BCH', 'NEAR',
+  'APE', 'ALGO', 'VET', 'MANA', 'SAND', 'AXS', 'ICP', 'FTM', 'HBAR', 'FLOW'
+];
 
 const client = new MainClient({
   api_key: API_KEY,
   api_secret: API_SECRET,
 });
 
-async function monitor(interval, getSubscribers, sendAlert) {
+async function monitor(interval, getSubscribers, sendAlert, editResultAlert) {
   let subscribers = getSubscribers();
 
 
@@ -34,23 +42,42 @@ async function monitor(interval, getSubscribers, sendAlert) {
         // Проверяем на бычье/медвежье поглощение с RCI
         const engulfingSignal = detectEngulfingWithRCI(candles, 5);
         if (engulfingSignal.isSignal) {
-          const direction = (engulfingSignal.type === 'long' ? '🟢' : '🔴') + `SIGNAL: ${engulfingSignal.type}`;
+          const direction = (engulfingSignal.type === 'long' ? '🟢' : '🔴') + `SIGNAL RCI: ${engulfingSignal.type}`;
           const msg = `${direction} \nCURRENCY: ${symbol}\nPrice: $${engulfingSignal.entry}\nRCI: ${engulfingSignal.rci}\nConfidence: ${engulfingSignal.confidence}\nStop Loss: $${engulfingSignal.stopLoss}\nTake Profit: $${engulfingSignal.takeProfit} \nReason: ${engulfingSignal.reason} \nLink: ${formatBinanceLink(symbol)}`;
           if (!formatBinanceLink(symbol)) {
             console.error(`ERROR link ${symbol}`);
           } else {
-            await sendAlert(chatId, msg);
+            const messageId = await sendAlert(chatId, msg);
             console.log(`Engulfing pattern detected for ${symbol} (${engulfingSignal.confidence})`);
-          } 
-         
+            
+            setTimeout(() => {
+              checkSignalResult(symbol, engulfingSignal.stopLoss, engulfingSignal.takeProfit, engulfingSignal.type, { chatId, messageId, editResultAlert });
+            }, 5 * 60 * 1000);
+          }
         }
 
+        const signal = detectScalpingSignal(candles);
+        if (signal.isSignal) {
+          const direction = (signal.type === 'long' ? '🟢' : '🔴') + `SIGNAL Scalping: ${signal.type}`;
+          const msg = `${direction} \nCURRENCY: ${symbol}\nPrice: $${signal.entry}\nRCI: ${signal.rci}\nConfidence: ${signal.confidence}\nStop Loss: $${signal.stopLoss}\nTake Profit: $${signal.takeProfit} \nReason: ${signal.reason} \nLink: ${formatBinanceLink(symbol)}`;
+          if (!formatBinanceLink(symbol)) {
+            console.error(`ERROR link ${symbol}`);
+          } else {
+            const messageId = await sendAlert(chatId, msg);
+            console.log(`Engulfing pattern detected for ${symbol} (${signal.confidence})`);
+
+            // Запускаем проверку через 5 минут
+            setTimeout(() => {
+              checkSignalResult(symbol, signal.stopLoss, signal.takeProfit, signal.type, { chatId, messageId, editResultAlert });
+            }, 5 * 60 * 1000);
+          }
+        }
 
         // Проверяем на рост/падение
-        const prevClose = candles[candles.length-2].close;
-        const currentClose = candles[candles.length-1].close;
+        const prevClose = candles[candles.length - 2].close;
+        const currentClose = candles[candles.length - 1].close;
         const diffPercent = ((currentClose - prevClose) / prevClose) * 100;
-        if (Math.abs(diffPercent) >= threshold) {
+        if (Math.abs(diffPercent) >= threshold && process.env.TH === 'true') {
           const direction = diffPercent > 0 ? '📈 GROW' : '📉 DOWN';
           const msg = `⚠️ ${symbol}: ${direction} on ${diffPercent.toFixed(2)}%\nPrice: $${currentClose}`;
           await sendAlert(chatId, msg);
@@ -62,7 +89,6 @@ async function monitor(interval, getSubscribers, sendAlert) {
     }
   }
 }
-
 
 function parseKlines(rawKlines) {
   return rawKlines.map(kline => ({
@@ -81,8 +107,6 @@ function parseKlines(rawKlines) {
   }));
 }
 
-
-
 async function getLatestKlines(symbol = 'BTCUSDT', interval = '1m', limit = 1) {
   const raw = await client.getKlines({ symbol, interval, limit });
   return parseKlines(raw);
@@ -92,105 +116,32 @@ async function getUsdtPairs() {
   try {
     const exchangeInfo = await client.getExchangeInfo();
 
-    const usdtPairs = exchangeInfo.symbols
-      .filter(s =>
-        s.status === 'TRADING' &&
-        (s.quoteAsset === 'USDT' || s.baseAsset === 'USDT')
-      )
+    const top30UsdtPairs = exchangeInfo.symbols
+      .filter(s => {
+        // Проверяем статус торговли
+        if (s.status !== 'TRADING') return false;
+
+        // Для пар с USDT в качестве quote asset (например, BTC/USDT)
+        if (s.quoteAsset === 'USDT') {
+          return TOP_30_COINS.includes(s.baseAsset);
+        }
+
+        // Для пар с USDT в качестве base asset (например, USDT/BTC) - редко встречается
+        if (s.baseAsset === 'USDT') {
+          return TOP_30_COINS.includes(s.quoteAsset);
+        }
+
+        return false;
+      })
       .map(s => s.symbol);
 
-    console.log('USDT-пары:', usdtPairs);
-    return usdtPairs;
+    console.log('Топ-30 USDT-пары:', top30UsdtPairs);
+    console.log('Количество пар:', top30UsdtPairs.length);
+    return top30UsdtPairs;
   } catch (error) {
     console.error('Ошибка при получении пар:', error.message);
+    return [];
   }
-}
-
-function detectEngulfingWithRCI(candles, rciPeriod = 9) {
-  if (!Array.isArray(candles) || candles.length < rciPeriod + 2) {
-    return { isSignal: false, reason: "Not enough candles" };
-  }
-
-  const prev = candles[candles.length - 2];
-  const current = candles[candles.length - 1];
-
-  const rci = calculateRCI(candles, rciPeriod);
-
-  // Проверяем паттерн бычьего поглощения (long)
-  const isBullishEngulfing =
-    prev.close < prev.open &&
-    current.close > current.open &&
-    current.open < prev.close &&
-    current.close > prev.open &&
-    rci < -50;
-
-  // Проверяем паттерн медвежьего поглощения (short)
-  const isBearishEngulfing =
-    prev.close > prev.open &&
-    current.close < current.open &&
-    current.open > prev.close &&
-    current.close < prev.open &&
-    rci > 50;
-
-  // Функция для расчёта confidence
-  function calculateConfidence(rciValue, candle) {
-    const bodySize = Math.abs(candle.close - candle.open);
-    const range = candle.high - candle.low;
-    const bodyRatio = bodySize / range;
-
-    // RCI score: чем дальше от порога (-50 или +50), тем выше score (0..1)
-    let rciScore = 0;
-    if (rciValue < -50) {
-      rciScore = Math.min((Math.abs(rciValue) - 50) / 50, 1); // для лонга
-    } else if (rciValue > 50) {
-      rciScore = Math.min((rciValue - 50) / 50, 1); // для шорта
-    }
-
-    // Чем меньше bodyRatio (тонкое тело), тем ниже confidence, наоборот — плотное тело выше confidence
-    const bodyScore = Math.min(1, bodyRatio * 3); // масштабируем bodyRatio для лучшей чувствительности
-
-    // Взвешенный итог
-    return Math.min(1, rciScore * 0.7 + bodyScore * 0.3);
-  }
-
-  if (isBullishEngulfing) {
-    const confidence = calculateConfidence(rci, current);
-    const stopLoss = current.low;
-    const takeProfit = current.close + (current.close - stopLoss) * 1.5;
-    return {
-      isSignal: true,
-      type: "long",
-      candle: current,
-      confidence: Number(confidence.toFixed(2)),
-      rci,
-      entry: current.close,
-      stopLoss,
-      takeProfit,
-      reason: "Bullish Engulfing + RCI confirmation"
-    };
-  }
-
-  if (isBearishEngulfing) {
-    const confidence = calculateConfidence(rci, current);
-    const stopLoss = current.high;
-    const takeProfit = current.close - (stopLoss - current.close) * 1.5;
-    return {
-      isSignal: true,
-      type: "short",
-      candle: current,
-      confidence: Number(confidence.toFixed(2)),
-      rci,
-      entry: current.close,
-      stopLoss,
-      takeProfit,
-      reason: "Bearish Engulfing + RCI confirmation"
-    };
-  }
-
-  return {
-    isSignal: false,
-    reason: "No engulfing pattern with RCI filter"
-  };
 }
 
 function formatBinanceLink(symbol) {
@@ -206,36 +157,68 @@ function formatBinanceLink(symbol) {
   return `https://www.binance.com/en/trade/${base}_${quote}`;
 }
 
-function calculateRCI(candles, period) {
-  if (candles.length < period) return null;
+async function checkSignalResult(symbol, stopLoss, takeProfit, type, { chatId, messageId, editResultAlert }) {
+  try {
+    // Получаем последние 5 свечей
+    const candles = await client.getCandlestickData({
+      symbol: symbol,
+      interval: '1m',
+      limit: 5
+    });
 
-  // Берём цены закрытия за период
-  const closes = candles.slice(-period).map(c => c.close);
+    if (candles.length === 0) {
+      console.log(`Нет данных для ${symbol}`);
+      return;
+    }
 
-  // Ранжируем цены по величине (ранг цен)
-  const priceRanks = closes
-    .map((price, idx) => ({ price, idx }))
-    .sort((a, b) => a.price - b.price)
-    .map((item, i) => ({ ...item, rank: i + 1 }))
-    .sort((a, b) => a.idx - b.idx)
-    .map(item => item.rank);
+    let result = null;
 
-  // Ранжируем по времени (1..period)
-  const timeRanks = Array.from({ length: period }, (_, i) => i + 1);
+    // Проверяем каждую свечу на предмет срабатывания SL или TP
+    for (const candle of candles) {
+      const high = parseFloat(candle.high);
+      const low = parseFloat(candle.low);
 
-  // Считаем сумму квадратов разностей рангов
-  let dSquaredSum = 0;
-  for (let i = 0; i < period; i++) {
-    const d = timeRanks[i] - priceRanks[i];
-    dSquaredSum += d * d;
+      if (type === 'long') {
+        // Для лонг позиции: сначала проверяем SL (низ свечи), потом TP (верх свечи)
+        if (low <= stopLoss) {
+          result = { status: 'STOP LOSS', price: stopLoss };
+          break; // Стоп лосс сработал раньше
+        }
+        if (high >= takeProfit) {
+          result = { status: 'TAKE PROFIT', price: takeProfit };
+          break;
+        }
+      } else {
+        // Для шорт позиции: сначала проверяем SL (верх свечи), потом TP (низ свечи)  
+        if (high >= stopLoss) {
+          result = { status: 'STOP LOSS', price: stopLoss };
+          break; // Стоп лосс сработал раньше
+        }
+        if (low <= takeProfit) {
+          result = { status: 'TAKE PROFIT', price: takeProfit };
+          break;
+        }
+      }
+    }
+
+    // Если ничего не сработало
+    if (!result) {
+      const currentPrice = parseFloat(candles[candles.length - 1].close);
+      result = { status: 'ACTIVE', price: currentPrice };
+    }
+
+    // Отправляем обновление
+    const statusEmoji = result.status === 'TAKE PROFIT' ? '✅' :
+      result.status === 'STOP LOSS' ? '❌' : '⏳';
+
+    const updateMsg = `${statusEmoji} UPDATE: ${symbol} Status: ${result.status} Price: $${result.price}`;
+
+    await editResultAlert(chatId, messageId, updateMsg);
+    console.log(`${symbol} result: ${result.status} at $${result.price}`);
+
+  } catch (error) {
+    console.error(`Ошибка проверки ${symbol}:`, error.message);
   }
-
-  // Рассчитываем RCI по формуле
-  const rci = 1 - (6 * dSquaredSum) / (period * (period * period - 1));
-
-  // Возвращаем в процентах (-1..1 => -100..100)
-  return rci * 100;
 }
-
 
 module.exports = { getLatestKlines, monitor };
